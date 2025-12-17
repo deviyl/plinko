@@ -8,22 +8,18 @@ const firebaseConfig = {
   appId: "1:475906567682:web:d26c3513c14860fb26c11b"
 };
 
-// Initialize Firebase
 firebase.initializeApp(firebaseConfig);
 const db = firebase.database();
 
 let currentPlayer = null;
 let gameInitialized = false;
 
-// --- 1. TORN API VALIDATION ---
 async function validatePlayer() {
     const key = document.getElementById('api-key').value;
     const msg = document.getElementById('status-msg');
-
     try {
         const response = await fetch(`https://api.torn.com/v2/user/basic?key=${key}`);
         const data = await response.json();
-
         if (data.profile && data.profile.name) {
             currentPlayer = data.profile.name;
             msg.innerText = `Welcome, ${currentPlayer}! Click to drop your chip.`;
@@ -37,7 +33,6 @@ async function validatePlayer() {
     }
 }
 
-// --- 2. MATTER.JS PLINKO GAME ---
 function initGame() {
     if(gameInitialized) return;
     gameInitialized = true;
@@ -47,15 +42,18 @@ function initGame() {
     const render = Render.create({
         element: document.getElementById('game-container'),
         engine: engine,
-        options: { 
-            width: 400, 
-            height: 600, 
-            wireframes: false,
-            background: '#000' 
-        }
+        options: { width: 400, height: 600, wireframes: false, background: '#000' }
     });
 
-    // --- 1. Create Pegs ---
+    // --- 1. Containment Walls (The Fix) ---
+    const wallOptions = { isStatic: true, render: { visible: false } };
+    Composite.add(engine.world, [
+        Bodies.rectangle(200, -10, 400, 20, wallOptions), // Ceiling
+        Bodies.rectangle(-10, 300, 20, 600, wallOptions), // Left Wall
+        Bodies.rectangle(410, 300, 20, 600, wallOptions), // Right Wall
+    ]);
+
+    // --- 2. Create Pegs ---
     for (let i = 0; i < 9; i++) {
         for (let j = 0; j <= i; j++) {
             const x = 200 + (j - i / 2) * 40;
@@ -67,7 +65,7 @@ function initGame() {
         }
     }
 
-    // --- 2. Create Buckets & Scoring Zones ---
+    // --- 3. Buckets & Scoring Zones ---
     const bucketValues = [100, 500, 1000, 500, 100];
     for (let i = 0; i < 5; i++) {
         const xPos = 80 * i + 40;
@@ -81,7 +79,7 @@ function initGame() {
         Composite.add(engine.world, [sensor, wall]);
     }
 
-    // --- 3. Mouse Logic & "Ghost Chip" ---
+    // --- 4. Mouse Logic & "Ghost Chip" ---
     const canvas = render.canvas;
     const ctx = canvas.getContext('2d');
     let ballDropped = false;
@@ -103,27 +101,24 @@ function initGame() {
         ballDropped = true;
     });
 
-    // --- 4. Custom Drawing (Labels & Ghost Ball) ---
+    // --- 5. Custom Drawing (Labels & Ghost Ball) ---
     Events.on(render, 'afterRender', () => {
-        // Draw the Bucket Labels
-        ctx.font = "bold 16px Arial";
+        ctx.font = "bold 18px Arial";
         ctx.fillStyle = "#ffffff";
         ctx.textAlign = "center";
         bucketValues.forEach((val, i) => {
             ctx.fillText(val, 80 * i + 40, 580);
         });
 
-        // Draw the Ghost Chip (following mouse)
         if (!ballDropped) {
             ctx.beginPath();
             ctx.arc(mouseX, 40, 11, 0, Math.PI * 2);
-            ctx.fillStyle = "rgba(255, 204, 0, 0.5)"; // Semi-transparent yellow
+            ctx.fillStyle = "rgba(255, 204, 0, 0.5)";
             ctx.fill();
             ctx.strokeStyle = "#ffcc00";
             ctx.stroke();
             ctx.closePath();
             
-            // Helper line to show drop path
             ctx.setLineDash([5, 5]);
             ctx.beginPath();
             ctx.moveTo(mouseX, 40);
@@ -134,7 +129,7 @@ function initGame() {
         }
     });
 
-    // --- 5. Collision ---
+    // --- 6. Collision ---
     Events.on(engine, 'collisionStart', (event) => {
         event.pairs.forEach(pair => {
             const label = pair.bodyA.label.startsWith('score-') ? pair.bodyA.label : 
@@ -152,27 +147,22 @@ function initGame() {
     Runner.run(Runner.create(), engine);
 }
 
-// --- 3. SCORING & LEADERBOARD ---
+// --- 7. SCORING & LEADERBOARD (Same as before) ---
 function submitScore(points) {
-    const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
+    const today = new Date().toISOString().split('T')[0];
     const userRef = db.ref('scores/' + currentPlayer);
-
     userRef.once('value').then((snapshot) => {
         let data = snapshot.val() || { total: 0, history: {} };
-        
         if (data.history[today]) {
-            alert("You have already played today (GMT)!");
-            location.reload(); 
+            alert("You already played today!");
+            location.reload();
             return;
         }
-
         data.total += points;
         data.history[today] = points;
-        
         userRef.set(data).then(() => {
             alert(`${currentPlayer}, you scored ${points}!`);
-            loadLeaderboard();
-            setTimeout(() => { location.reload(); }, 2000); 
+            setTimeout(() => { location.reload(); }, 1500);
         });
     });
 }
@@ -180,7 +170,6 @@ function submitScore(points) {
 function loadLeaderboard() {
     const today = new Date().toISOString().split('T')[0];
     const yesterdayDate = new Date();
-    yesterdayDate.getUTCDate();
     yesterdayDate.setUTCDate(yesterdayDate.getUTCDate() - 1);
     const yesterday = yesterdayDate.toISOString().split('T')[0];
     
@@ -188,23 +177,17 @@ function loadLeaderboard() {
         const scores = snapshot.val();
         const tbody = document.getElementById('leaderboard-body');
         if (!tbody || !scores) return;
-        
         tbody.innerHTML = "";
-
-        // Sort by total score descending
         const sortedNames = Object.keys(scores).sort((a, b) => scores[b].total - scores[a].total);
-
         sortedNames.forEach(name => {
-            const row = `<tr>
-                <td>**${name}**</td>
+            tbody.innerHTML += `<tr>
+                <td>${name}</td>
                 <td>${scores[name].history[yesterday] || 0}</td>
                 <td>${scores[name].history[today] || 0}</td>
                 <td>${scores[name].total}</td>
             </tr>`;
-            tbody.innerHTML += row;
         });
     });
 }
 
-// Load board on start
 loadLeaderboard();
