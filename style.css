@@ -20,6 +20,9 @@ body {
     border: 2px solid #444;
     background: #000;
     margin-top: 10px;
+    box-shadow: 0 0 20px rgba(255, 204, 0, 0.2);
+    border-radius: 8px;
+    overflow: hidden;
 }
 
 .leaderboard {
@@ -56,3 +59,10 @@ button {
     border-radius: 4px;
     cursor: pointer;
 }
+
+#game-container canvas {
+    cursor: crosshair;
+    display: block;
+    margin: 0 auto;
+}
+
