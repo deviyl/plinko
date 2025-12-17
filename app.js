@@ -1,4 +1,4 @@
-// Firebase Configuration (Using your existing key)
+// Firebase Configuration
 const firebaseConfig = {
   apiKey: "AIzaSyDQSkkjhzUMWQ916ipDxfpzOE2-bELRj4o",
   authDomain: "plinko-b8ca4.firebaseapp.com",
@@ -13,16 +13,36 @@ const db = firebase.database();
 
 let currentPlayer = null;
 let gameInitialized = false;
+let canPlay = true; // Flag to track if the user is eligible to drop
 
+// --- 1. TORN API VALIDATION & ELIGIBILITY CHECK ---
 async function validatePlayer() {
     const key = document.getElementById('api-key').value;
     const msg = document.getElementById('status-msg');
+    const today = new Date().toISOString().split('T')[0];
+
     try {
         const response = await fetch(`https://api.torn.com/v2/user/basic?key=${key}`);
         const data = await response.json();
+
         if (data.profile && data.profile.name) {
             currentPlayer = data.profile.name;
-            msg.innerText = `Welcome, ${currentPlayer}! Drop your chip.`;
+            
+            // Check Firebase to see if they already played today
+            const userRef = db.ref('scores/' + currentPlayer);
+            const snapshot = await userRef.once('value');
+            const userData = snapshot.val();
+
+            if (userData && userData.history && userData.history[today]) {
+                canPlay = false;
+                msg.innerText = `Sorry ${currentPlayer}, you've already played today!`;
+                msg.style.color = "#ff4444";
+            } else {
+                canPlay = true;
+                msg.innerText = `Welcome, ${currentPlayer}! Drop your chip.`;
+                msg.style.color = "#28a745";
+            }
+
             document.getElementById('auth-box').style.display = 'none';
             initGame(); 
         } else {
@@ -33,6 +53,7 @@ async function validatePlayer() {
     }
 }
 
+// --- 2. MATTER.JS PLINKO GAME ---
 function initGame() {
     if(gameInitialized) return;
     gameInitialized = true;
@@ -40,19 +61,18 @@ function initGame() {
     const { Engine, Render, Runner, Bodies, Composite, Events } = Matter;
     const engine = Engine.create();
     
-    // Increased size to 800x800
     const render = Render.create({
         element: document.getElementById('game-container'),
         engine: engine,
         options: { width: 800, height: 800, wireframes: false, background: '#000' }
     });
 
-    // --- 1. Containment Walls (Updated for 800px width) ---
+    // --- 1. Containment Walls ---
     const wallOptions = { isStatic: true, render: { visible: false } };
     Composite.add(engine.world, [
-        Bodies.rectangle(400, -10, 800, 20, wallOptions), // Ceiling
-        Bodies.rectangle(-10, 400, 20, 800, wallOptions), // Left
-        Bodies.rectangle(810, 400, 20, 800, wallOptions), // Right
+        Bodies.rectangle(400, -10, 800, 20, wallOptions),
+        Bodies.rectangle(-10, 400, 20, 800, wallOptions),
+        Bodies.rectangle(810, 400, 20, 800, wallOptions),
     ]);
 
     // --- 2. Staggered Square Peg Grid ---
@@ -62,12 +82,10 @@ function initGame() {
 
     for (let r = 0; r < rows; r++) {
         for (let c = 0; c < cols; c++) {
-            // Offset every other row for that "Plinko" bounce
             let xOffset = (r % 2 === 0) ? spacing / 2 : 0;
             const x = (c * spacing) + 25 + xOffset;
             const y = (r * spacing) + 120;
             
-            // Only add pegs that fit within the 800px width
             if (x < 780) {
                 Composite.add(engine.world, Bodies.circle(x, y, 4, { 
                     isStatic: true, 
@@ -99,7 +117,7 @@ function initGame() {
         Composite.add(engine.world, [sensor, wall]);
     }
 
-    // --- 4. Mouse Logic & Larger Ghost Chip ---
+    // --- 4. Mouse Logic ---
     const canvas = render.canvas;
     const ctx = canvas.getContext('2d');
     let ballDropped = false;
@@ -111,7 +129,8 @@ function initGame() {
     });
 
     canvas.addEventListener('mousedown', () => {
-        if (ballDropped) return;
+        if (!canPlay || ballDropped) return; // Prevent drop if ineligible
+        
         const ball = Bodies.circle(mouseX, 40, 14, { 
             restitution: 0.6, 
             friction: 0.03,
@@ -121,7 +140,7 @@ function initGame() {
         ballDropped = true;
     });
 
-    // --- 5. Custom Drawing (Text & UI) ---
+    // --- 5. Custom Drawing (Labels & Ghost UI) ---
     Events.on(render, 'afterRender', () => {
         ctx.font = "bold 16px Arial";
         ctx.fillStyle = "#ffffff";
@@ -133,22 +152,33 @@ function initGame() {
         });
 
         if (!ballDropped) {
-            // Draw Ghost Chip
             ctx.beginPath();
             ctx.arc(mouseX, 40, 14, 0, Math.PI * 2);
-            ctx.fillStyle = "rgba(255, 204, 0, 0.4)";
-            ctx.fill();
-            ctx.strokeStyle = "#ffcc00";
-            ctx.stroke();
             
-            // Guide Line
-            ctx.setLineDash([5, 10]);
-            ctx.beginPath();
-            ctx.moveTo(mouseX, 40);
-            ctx.lineTo(mouseX, 110);
-            ctx.strokeStyle = "rgba(255, 255, 255, 0.3)";
-            ctx.stroke();
-            ctx.setLineDash([]);
+            if (!canPlay) {
+                // RED GHOST IF ALREADY PLAYED
+                ctx.fillStyle = "rgba(255, 0, 0, 0.3)";
+                ctx.fill();
+                ctx.strokeStyle = "#ff0000";
+                ctx.stroke();
+                ctx.fillStyle = "#ff0000";
+                ctx.fillText("LOCKED", mouseX, 20);
+            } else {
+                // YELLOW GHOST IF ELIGIBLE
+                ctx.fillStyle = "rgba(255, 204, 0, 0.4)";
+                ctx.fill();
+                ctx.strokeStyle = "#ffcc00";
+                ctx.stroke();
+                
+                ctx.setLineDash([5, 10]);
+                ctx.beginPath();
+                ctx.moveTo(mouseX, 40);
+                ctx.lineTo(mouseX, 110);
+                ctx.strokeStyle = "rgba(255, 255, 255, 0.3)";
+                ctx.stroke();
+                ctx.setLineDash([]);
+            }
+            ctx.closePath();
         }
     });
 
@@ -170,19 +200,17 @@ function initGame() {
     Runner.run(Runner.create(), engine);
 }
 
-// (submitScore and loadLeaderboard functions remain the same as previous)
+// --- 3. SCORING & LEADERBOARD ---
 function submitScore(points) {
     const today = new Date().toISOString().split('T')[0];
     const userRef = db.ref('scores/' + currentPlayer);
+    
     userRef.once('value').then((snapshot) => {
         let data = snapshot.val() || { total: 0, history: {} };
-        if (data.history[today]) {
-            alert("You already played today!");
-            location.reload();
-            return;
-        }
+        
         data.total += points;
         data.history[today] = points;
+        
         userRef.set(data).then(() => {
             alert(`${currentPlayer}, you scored ${points}!`);
             setTimeout(() => { location.reload(); }, 1500);
