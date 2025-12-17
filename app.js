@@ -65,7 +65,7 @@ function startCountdown() {
         const mins = Math.floor((diff / 1000 / 60) % 60);
         const secs = Math.floor((diff / 1000) % 60);
 
-        msg.innerText = `Already played today! Next drop available in: ${hours}h ${mins}m ${secs}s (GMT)`;
+        msg.innerText = `Already played today! Next drop available in: ${hours}h ${mins}m ${secs}s (TCT)`;
     }, 1000);
 }
 
