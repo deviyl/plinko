@@ -55,11 +55,11 @@ function initGame() {
         }
     });
 
-    // Create Pegs in a Triangle
+    // --- 1. Create Pegs ---
     for (let i = 0; i < 9; i++) {
         for (let j = 0; j <= i; j++) {
             const x = 200 + (j - i / 2) * 40;
-            const y = 150 + i * 40; // Lowered to give room for dropping
+            const y = 150 + i * 40;
             Composite.add(engine.world, Bodies.circle(x, y, 4, { 
                 isStatic: true, 
                 render: { fillStyle: '#ffffff' } 
@@ -67,72 +67,83 @@ function initGame() {
         }
     }
 
-    // Buckets at the bottom with walls
+    // --- 2. Create Buckets & Scoring Zones ---
     const bucketValues = [100, 500, 1000, 500, 100];
     for (let i = 0; i < 5; i++) {
         const xPos = 80 * i + 40;
-        // The scoring sensor
         const sensor = Bodies.rectangle(xPos, 590, 70, 20, { 
             isStatic: true, 
             isSensor: true,
             label: `score-${bucketValues[i]}`,
             render: { fillStyle: 'transparent' } 
         });
-        // Decorative bucket floor
-        const floor = Bodies.rectangle(xPos, 595, 78, 10, { isStatic: true, render: { fillStyle: '#333' } });
-        // Divider walls
         const wall = Bodies.rectangle(xPos + 40, 550, 4, 100, { isStatic: true, render: { fillStyle: '#444' } });
-        
-        Composite.add(engine.world, [sensor, floor, wall]);
+        Composite.add(engine.world, [sensor, wall]);
     }
 
-    // Outer Walls
-    Composite.add(engine.world, [
-        Bodies.rectangle(0, 300, 10, 600, { isStatic: true }),
-        Bodies.rectangle(400, 300, 10, 600, { isStatic: true })
-    ]);
-
-    // --- MOUSE TRACKING & DROP ---
+    // --- 3. Mouse Logic & "Ghost Chip" ---
     const canvas = render.canvas;
+    const ctx = canvas.getContext('2d');
     let ballDropped = false;
     let mouseX = 200;
 
-    // Track mouse movement for the "Ghost" position
     canvas.addEventListener('mousemove', (e) => {
         const rect = canvas.getBoundingClientRect();
         mouseX = e.clientX - rect.left;
     });
 
-    // Drop on click
     canvas.addEventListener('mousedown', () => {
         if (ballDropped) return;
-
         const ball = Bodies.circle(mouseX, 40, 11, { 
             restitution: 0.5, 
             friction: 0.02,
             render: { fillStyle: '#ffcc00' } 
         });
-
         Composite.add(engine.world, ball);
         ballDropped = true;
-        document.getElementById('status-msg').innerText = "Dropping...";
     });
 
-    // --- COLLISION DETECTION ---
+    // --- 4. Custom Drawing (Labels & Ghost Ball) ---
+    Events.on(render, 'afterRender', () => {
+        // Draw the Bucket Labels
+        ctx.font = "bold 16px Arial";
+        ctx.fillStyle = "#ffffff";
+        ctx.textAlign = "center";
+        bucketValues.forEach((val, i) => {
+            ctx.fillText(val, 80 * i + 40, 580);
+        });
+
+        // Draw the Ghost Chip (following mouse)
+        if (!ballDropped) {
+            ctx.beginPath();
+            ctx.arc(mouseX, 40, 11, 0, Math.PI * 2);
+            ctx.fillStyle = "rgba(255, 204, 0, 0.5)"; // Semi-transparent yellow
+            ctx.fill();
+            ctx.strokeStyle = "#ffcc00";
+            ctx.stroke();
+            ctx.closePath();
+            
+            // Helper line to show drop path
+            ctx.setLineDash([5, 5]);
+            ctx.beginPath();
+            ctx.moveTo(mouseX, 40);
+            ctx.lineTo(mouseX, 140);
+            ctx.strokeStyle = "rgba(255, 255, 255, 0.2)";
+            ctx.stroke();
+            ctx.setLineDash([]);
+        }
+    });
+
+    // --- 5. Collision ---
     Events.on(engine, 'collisionStart', (event) => {
         event.pairs.forEach(pair => {
-            const bodyA = pair.bodyA;
-            const bodyB = pair.bodyB;
-
-            if (bodyA.label.startsWith('score-') || bodyB.label.startsWith('score-')) {
-                const label = bodyA.label.startsWith('score-') ? bodyA.label : bodyB.label;
-                const score = parseInt(label.split('-')[1]);
-                
-                // Remove ball so it doesn't double-score
-                const ball = bodyA.label.startsWith('score-') ? bodyB : bodyA;
+            const label = pair.bodyA.label.startsWith('score-') ? pair.bodyA.label : 
+                         (pair.bodyB.label.startsWith('score-') ? pair.bodyB.label : null);
+            if (label) {
+                const points = parseInt(label.split('-')[1]);
+                const ball = pair.bodyA.label.startsWith('score-') ? pair.bodyB : pair.bodyA;
                 Composite.remove(engine.world, ball);
-                
-                submitScore(score);
+                submitScore(points);
             }
         });
     });
