@@ -13,7 +13,7 @@ const db = firebase.database();
 
 let currentPlayer = null;
 let gameInitialized = false;
-let canPlay = true; // Flag to track if the user is eligible to drop
+let canPlay = true; 
 
 // --- 1. TORN API VALIDATION & ELIGIBILITY CHECK ---
 async function validatePlayer() {
@@ -28,15 +28,13 @@ async function validatePlayer() {
         if (data.profile && data.profile.name) {
             currentPlayer = data.profile.name;
             
-            // Check Firebase to see if they already played today
             const userRef = db.ref('scores/' + currentPlayer);
             const snapshot = await userRef.once('value');
             const userData = snapshot.val();
 
             if (userData && userData.history && userData.history[today]) {
                 canPlay = false;
-                msg.innerText = `Sorry ${currentPlayer}, you've already played today!`;
-                msg.style.color = "#ff4444";
+                startCountdown(); // Start the GMT timer
             } else {
                 canPlay = true;
                 msg.innerText = `Welcome, ${currentPlayer}! Drop your chip.`;
@@ -53,7 +51,25 @@ async function validatePlayer() {
     }
 }
 
-// --- 2. MATTER.JS PLINKO GAME ---
+// --- 2. GMT COUNTDOWN TIMER ---
+function startCountdown() {
+    const msg = document.getElementById('status-msg');
+    msg.style.color = "#ff4444";
+
+    setInterval(() => {
+        const now = new Date();
+        const tomorrow = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1));
+        const diff = tomorrow - now;
+
+        const hours = Math.floor((diff / (1000 * 60 * 60)) % 24);
+        const mins = Math.floor((diff / 1000 / 60) % 60);
+        const secs = Math.floor((diff / 1000) % 60);
+
+        msg.innerText = `Already played today! Next drop available in: ${hours}h ${mins}m ${secs}s (GMT)`;
+    }, 1000);
+}
+
+// --- 3. MATTER.JS PLINKO GAME ---
 function initGame() {
     if(gameInitialized) return;
     gameInitialized = true;
@@ -67,7 +83,6 @@ function initGame() {
         options: { width: 800, height: 800, wireframes: false, background: '#000' }
     });
 
-    // --- 1. Containment Walls ---
     const wallOptions = { isStatic: true, render: { visible: false } };
     Composite.add(engine.world, [
         Bodies.rectangle(400, -10, 800, 20, wallOptions),
@@ -75,7 +90,6 @@ function initGame() {
         Bodies.rectangle(810, 400, 20, 800, wallOptions),
     ]);
 
-    // --- 2. Staggered Square Peg Grid ---
     const rows = 14;
     const cols = 18;
     const spacing = 45;
@@ -85,7 +99,6 @@ function initGame() {
             let xOffset = (r % 2 === 0) ? spacing / 2 : 0;
             const x = (c * spacing) + 25 + xOffset;
             const y = (r * spacing) + 120;
-            
             if (x < 780) {
                 Composite.add(engine.world, Bodies.circle(x, y, 4, { 
                     isStatic: true, 
@@ -95,29 +108,20 @@ function initGame() {
         }
     }
 
-    // --- 3. 10 Buckets at the bottom ---
     const bucketValues = [50, 100, 250, 500, 1000, 1000, 500, 250, 100, 50];
     const bucketWidth = 800 / bucketValues.length;
 
     for (let i = 0; i < bucketValues.length; i++) {
         const xPos = (i * bucketWidth) + (bucketWidth / 2);
-        
         const sensor = Bodies.rectangle(xPos, 785, bucketWidth - 10, 30, { 
-            isStatic: true, 
-            isSensor: true,
-            label: `score-${bucketValues[i]}`,
-            render: { fillStyle: 'transparent' } 
+            isStatic: true, isSensor: true, label: `score-${bucketValues[i]}`, render: { fillStyle: 'transparent' } 
         });
-
         const wall = Bodies.rectangle(xPos + (bucketWidth / 2), 730, 4, 140, { 
-            isStatic: true, 
-            render: { fillStyle: '#444' } 
+            isStatic: true, render: { fillStyle: '#444' } 
         });
-
         Composite.add(engine.world, [sensor, wall]);
     }
 
-    // --- 4. Mouse Logic ---
     const canvas = render.canvas;
     const ctx = canvas.getContext('2d');
     let ballDropped = false;
@@ -129,23 +133,18 @@ function initGame() {
     });
 
     canvas.addEventListener('mousedown', () => {
-        if (!canPlay || ballDropped) return; // Prevent drop if ineligible
-        
+        if (!canPlay || ballDropped) return;
         const ball = Bodies.circle(mouseX, 40, 14, { 
-            restitution: 0.6, 
-            friction: 0.03,
-            render: { fillStyle: '#ffcc00' } 
+            restitution: 0.6, friction: 0.03, render: { fillStyle: '#ffcc00' } 
         });
         Composite.add(engine.world, ball);
         ballDropped = true;
     });
 
-    // --- 5. Custom Drawing (Labels & Ghost UI) ---
     Events.on(render, 'afterRender', () => {
         ctx.font = "bold 16px Arial";
         ctx.fillStyle = "#ffffff";
         ctx.textAlign = "center";
-        
         bucketValues.forEach((val, i) => {
             const xPos = (i * bucketWidth) + (bucketWidth / 2);
             ctx.fillText(val, xPos, 780);
@@ -154,9 +153,7 @@ function initGame() {
         if (!ballDropped) {
             ctx.beginPath();
             ctx.arc(mouseX, 40, 14, 0, Math.PI * 2);
-            
             if (!canPlay) {
-                // RED GHOST IF ALREADY PLAYED
                 ctx.fillStyle = "rgba(255, 0, 0, 0.3)";
                 ctx.fill();
                 ctx.strokeStyle = "#ff0000";
@@ -164,16 +161,13 @@ function initGame() {
                 ctx.fillStyle = "#ff0000";
                 ctx.fillText("LOCKED", mouseX, 20);
             } else {
-                // YELLOW GHOST IF ELIGIBLE
                 ctx.fillStyle = "rgba(255, 204, 0, 0.4)";
                 ctx.fill();
                 ctx.strokeStyle = "#ffcc00";
                 ctx.stroke();
-                
                 ctx.setLineDash([5, 10]);
                 ctx.beginPath();
-                ctx.moveTo(mouseX, 40);
-                ctx.lineTo(mouseX, 110);
+                ctx.moveTo(mouseX, 40); ctx.lineTo(mouseX, 110);
                 ctx.strokeStyle = "rgba(255, 255, 255, 0.3)";
                 ctx.stroke();
                 ctx.setLineDash([]);
@@ -182,7 +176,6 @@ function initGame() {
         }
     });
 
-    // --- 6. Collision Detection ---
     Events.on(engine, 'collisionStart', (event) => {
         event.pairs.forEach(pair => {
             const label = pair.bodyA.label.startsWith('score-') ? pair.bodyA.label : 
@@ -200,19 +193,16 @@ function initGame() {
     Runner.run(Runner.create(), engine);
 }
 
-// --- 3. SCORING & LEADERBOARD ---
+// --- 4. SCORING & LEADERBOARD ---
 function submitScore(points) {
     const today = new Date().toISOString().split('T')[0];
     const userRef = db.ref('scores/' + currentPlayer);
-    
     userRef.once('value').then((snapshot) => {
         let data = snapshot.val() || { total: 0, history: {} };
-        
         data.total += points;
         data.history[today] = points;
-        
         userRef.set(data).then(() => {
-            alert(`${currentPlayer}, you scored ${points}!`);
+            alert(`You scored ${points}!`);
             setTimeout(() => { location.reload(); }, 1500);
         });
     });
