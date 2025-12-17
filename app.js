@@ -1,4 +1,4 @@
-// Firebase Configuration
+// Firebase Configuration (Using your existing key)
 const firebaseConfig = {
   apiKey: "AIzaSyDQSkkjhzUMWQ916ipDxfpzOE2-bELRj4o",
   authDomain: "plinko-b8ca4.firebaseapp.com",
@@ -22,7 +22,7 @@ async function validatePlayer() {
         const data = await response.json();
         if (data.profile && data.profile.name) {
             currentPlayer = data.profile.name;
-            msg.innerText = `Welcome, ${currentPlayer}! Click to drop your chip.`;
+            msg.innerText = `Welcome, ${currentPlayer}! Drop your chip.`;
             document.getElementById('auth-box').style.display = 'none';
             initGame(); 
         } else {
@@ -39,51 +39,71 @@ function initGame() {
 
     const { Engine, Render, Runner, Bodies, Composite, Events } = Matter;
     const engine = Engine.create();
+    
+    // Increased size to 800x800
     const render = Render.create({
         element: document.getElementById('game-container'),
         engine: engine,
-        options: { width: 400, height: 600, wireframes: false, background: '#000' }
+        options: { width: 800, height: 800, wireframes: false, background: '#000' }
     });
 
-    // --- 1. Containment Walls (The Fix) ---
+    // --- 1. Containment Walls (Updated for 800px width) ---
     const wallOptions = { isStatic: true, render: { visible: false } };
     Composite.add(engine.world, [
-        Bodies.rectangle(200, -10, 400, 20, wallOptions), // Ceiling
-        Bodies.rectangle(-10, 300, 20, 600, wallOptions), // Left Wall
-        Bodies.rectangle(410, 300, 20, 600, wallOptions), // Right Wall
+        Bodies.rectangle(400, -10, 800, 20, wallOptions), // Ceiling
+        Bodies.rectangle(-10, 400, 20, 800, wallOptions), // Left
+        Bodies.rectangle(810, 400, 20, 800, wallOptions), // Right
     ]);
 
-    // --- 2. Create Pegs ---
-    for (let i = 0; i < 9; i++) {
-        for (let j = 0; j <= i; j++) {
-            const x = 200 + (j - i / 2) * 40;
-            const y = 150 + i * 40;
-            Composite.add(engine.world, Bodies.circle(x, y, 4, { 
-                isStatic: true, 
-                render: { fillStyle: '#ffffff' } 
-            }));
+    // --- 2. Staggered Square Peg Grid ---
+    const rows = 14;
+    const cols = 18;
+    const spacing = 45;
+
+    for (let r = 0; r < rows; r++) {
+        for (let c = 0; c < cols; c++) {
+            // Offset every other row for that "Plinko" bounce
+            let xOffset = (r % 2 === 0) ? spacing / 2 : 0;
+            const x = (c * spacing) + 25 + xOffset;
+            const y = (r * spacing) + 120;
+            
+            // Only add pegs that fit within the 800px width
+            if (x < 780) {
+                Composite.add(engine.world, Bodies.circle(x, y, 4, { 
+                    isStatic: true, 
+                    render: { fillStyle: '#ffffff' } 
+                }));
+            }
         }
     }
 
-    // --- 3. Buckets & Scoring Zones ---
-    const bucketValues = [100, 500, 1000, 500, 100];
-    for (let i = 0; i < 5; i++) {
-        const xPos = 80 * i + 40;
-        const sensor = Bodies.rectangle(xPos, 590, 70, 20, { 
+    // --- 3. 10 Buckets at the bottom ---
+    const bucketValues = [50, 100, 250, 500, 1000, 1000, 500, 250, 100, 50];
+    const bucketWidth = 800 / bucketValues.length;
+
+    for (let i = 0; i < bucketValues.length; i++) {
+        const xPos = (i * bucketWidth) + (bucketWidth / 2);
+        
+        const sensor = Bodies.rectangle(xPos, 785, bucketWidth - 10, 30, { 
             isStatic: true, 
             isSensor: true,
             label: `score-${bucketValues[i]}`,
             render: { fillStyle: 'transparent' } 
         });
-        const wall = Bodies.rectangle(xPos + 40, 550, 4, 100, { isStatic: true, render: { fillStyle: '#444' } });
+
+        const wall = Bodies.rectangle(xPos + (bucketWidth / 2), 730, 4, 140, { 
+            isStatic: true, 
+            render: { fillStyle: '#444' } 
+        });
+
         Composite.add(engine.world, [sensor, wall]);
     }
 
-    // --- 4. Mouse Logic & "Ghost Chip" ---
+    // --- 4. Mouse Logic & Larger Ghost Chip ---
     const canvas = render.canvas;
     const ctx = canvas.getContext('2d');
     let ballDropped = false;
-    let mouseX = 200;
+    let mouseX = 400;
 
     canvas.addEventListener('mousemove', (e) => {
         const rect = canvas.getBoundingClientRect();
@@ -92,44 +112,47 @@ function initGame() {
 
     canvas.addEventListener('mousedown', () => {
         if (ballDropped) return;
-        const ball = Bodies.circle(mouseX, 40, 11, { 
-            restitution: 0.5, 
-            friction: 0.02,
+        const ball = Bodies.circle(mouseX, 40, 14, { 
+            restitution: 0.6, 
+            friction: 0.03,
             render: { fillStyle: '#ffcc00' } 
         });
         Composite.add(engine.world, ball);
         ballDropped = true;
     });
 
-    // --- 5. Custom Drawing (Labels & Ghost Ball) ---
+    // --- 5. Custom Drawing (Text & UI) ---
     Events.on(render, 'afterRender', () => {
-        ctx.font = "bold 18px Arial";
+        ctx.font = "bold 16px Arial";
         ctx.fillStyle = "#ffffff";
         ctx.textAlign = "center";
+        
         bucketValues.forEach((val, i) => {
-            ctx.fillText(val, 80 * i + 40, 580);
+            const xPos = (i * bucketWidth) + (bucketWidth / 2);
+            ctx.fillText(val, xPos, 780);
         });
 
         if (!ballDropped) {
+            // Draw Ghost Chip
             ctx.beginPath();
-            ctx.arc(mouseX, 40, 11, 0, Math.PI * 2);
-            ctx.fillStyle = "rgba(255, 204, 0, 0.5)";
+            ctx.arc(mouseX, 40, 14, 0, Math.PI * 2);
+            ctx.fillStyle = "rgba(255, 204, 0, 0.4)";
             ctx.fill();
             ctx.strokeStyle = "#ffcc00";
             ctx.stroke();
-            ctx.closePath();
             
-            ctx.setLineDash([5, 5]);
+            // Guide Line
+            ctx.setLineDash([5, 10]);
             ctx.beginPath();
             ctx.moveTo(mouseX, 40);
-            ctx.lineTo(mouseX, 140);
-            ctx.strokeStyle = "rgba(255, 255, 255, 0.2)";
+            ctx.lineTo(mouseX, 110);
+            ctx.strokeStyle = "rgba(255, 255, 255, 0.3)";
             ctx.stroke();
             ctx.setLineDash([]);
         }
     });
 
-    // --- 6. Collision ---
+    // --- 6. Collision Detection ---
     Events.on(engine, 'collisionStart', (event) => {
         event.pairs.forEach(pair => {
             const label = pair.bodyA.label.startsWith('score-') ? pair.bodyA.label : 
@@ -147,7 +170,7 @@ function initGame() {
     Runner.run(Runner.create(), engine);
 }
 
-// --- 7. SCORING & LEADERBOARD (Same as before) ---
+// (submitScore and loadLeaderboard functions remain the same as previous)
 function submitScore(points) {
     const today = new Date().toISOString().split('T')[0];
     const userRef = db.ref('scores/' + currentPlayer);
